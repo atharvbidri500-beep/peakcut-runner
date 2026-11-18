@@ -1,10 +1,11 @@
-# PeakCut round: fetch code + state from the private dataset repo, run a 25-minute watch
-# round (trend scan, clipping, posting), then save the state back. Runs every 2 hours.
+# PeakCut round. GitHub's own scheduler proved unreliable, so each run ARRANGES THE NEXT ONE
+# itself: a chain with no gaps, forever. While the PC is alive the round steps aside in about a
+# minute; the moment the PC's heartbeat stops, the chain runs full rounds on its own.
 name: peakcut-round
 
 on:
   schedule:
-    - cron: "7 */2 * * *"
+    - cron: "7 */2 * * *"      # backup only: the chain keeps the real cadence
   workflow_dispatch:
 
 concurrency:
@@ -14,7 +15,7 @@ concurrency:
 jobs:
   round:
     runs-on: ubuntu-latest
-    timeout-minutes: 50
+    timeout-minutes: 55
     env:
       TZ: Asia/Kolkata
       HF_TOKEN: ${{ secrets.HF_TOKEN }}
@@ -35,15 +36,18 @@ jobs:
           python ci/fetch.py
 
       - name: Speech model (cached)
+        if: env.SKIP_ROUND != '1'
         uses: actions/cache@v4
         with:
           path: models
           key: peakcut-asr
 
       - name: Fetch model if missing
+        if: env.SKIP_ROUND != '1'
         run: python -m studio.fetch_model
 
       - name: YouTube probe
+        if: env.SKIP_ROUND != '1'
         run: |
           pip install -q yt-dlp
           if yt-dlp -f "worst[ext=mp4]/worst" --max-filesize 5M -o "probe.%(ext)s" --no-part \
@@ -63,7 +67,20 @@ jobs:
           sleep 8
 
       - name: Save state back
-        if: always()
+        if: always() && env.SKIP_ROUND != '1'
         run: |
           pip install -q huggingface_hub
           python ci/final_backup.py
+
+      - name: Arrange the next round
+        if: always()
+        run: |
+          if [ "$SKIP_ROUND" = "1" ]; then
+            sleep 1800            # the PC is alive: look again in half an hour
+          fi
+          curl -s -X POST \
+            -H "Authorization: Bearer ${{ secrets.GH_PAT }}" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/${{ github.repository }}/actions/workflows/peakcut-round.yml/dispatches" \
+            -d '{"ref":"main"}'
+          echo "next round arranged"
