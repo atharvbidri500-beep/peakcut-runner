@@ -54,6 +54,7 @@ jobs:
           fi
 
       - name: Run the round (25 minutes)
+        if: env.SKIP_ROUND != '1'
         run: |
           python -m studio.server &
           echo $! > server.pid
