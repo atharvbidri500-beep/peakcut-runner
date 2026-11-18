@@ -1,6 +1,7 @@
 # PeakCut round. GitHub's own scheduler proved unreliable, so each run ARRANGES THE NEXT ONE
 # itself: a chain with no gaps, forever. While the PC is alive the round steps aside in about a
-# minute; the moment the PC's heartbeat stops, the chain runs full rounds on its own.
+# minute; the moment the PC's heartbeat stops, the chain becomes the engine: it restores the clips
+# this PC had queued and posts them on the schedule (one winner an hour, best clip first).
 name: peakcut-round
 
 on:
@@ -26,43 +27,23 @@ jobs:
       PEAKCUT_MODELS: ${{ github.workspace }}/models
       PEAKCUT_HOST: 127.0.0.1
       PEAKCUT_PORT: 8765
+      PEAKCUT_NO_DOWNLOAD: "1"
       PYTHONUNBUFFERED: 1
     steps:
       - uses: actions/checkout@v4
 
-      - name: Pull code and state
+      - name: Pull code, state and the posting queue
         run: |
           pip install -q huggingface_hub
           python ci/fetch.py
 
-      - name: Speech model (cached)
-        if: env.SKIP_ROUND != '1'
-        uses: actions/cache@v4
-        with:
-          path: models
-          key: peakcut-asr
-
-      - name: Fetch model if missing
-        if: env.SKIP_ROUND != '1'
-        run: python -m studio.fetch_model
-
-      - name: YouTube probe
+      - name: Run the round (40 minutes)
         if: env.SKIP_ROUND != '1'
         run: |
-          pip install -q yt-dlp
-          if yt-dlp -f "worst[ext=mp4]/worst" --max-filesize 5M -o "probe.%(ext)s" --no-part \
-             --no-playlist "https://www.youtube.com/watch?v=jNQXAC9IVRw" 2>&1 | tail -2; then
-            echo "PROBE_OK: YouTube downloads work from this runner"
-          else
-            echo "PROBE_BLOCKED: YouTube is blocking this runner's IP - video downloads may fail here"
-          fi
-
-      - name: Run the round (25 minutes)
-        if: env.SKIP_ROUND != '1'
-        run: |
+          python -m pip install -q -r requirements.txt || python -m pip install -q fastapi uvicorn httpx pillow numpy soundfile
           python -m studio.server &
           echo $! > server.pid
-          sleep 1500
+          sleep 2400
           kill -TERM $(cat server.pid) 2>/dev/null || true
           sleep 8
 
