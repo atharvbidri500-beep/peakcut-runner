@@ -28,6 +28,7 @@ jobs:
       PEAKCUT_HOST: 127.0.0.1
       PEAKCUT_PORT: 8765
       PEAKCUT_NO_DOWNLOAD: "1"
+      PEAKCUT_FETCH_MODEL: "0"
       PYTHONUNBUFFERED: 1
     steps:
       - uses: actions/checkout@v4
@@ -37,10 +38,20 @@ jobs:
           pip install -q huggingface_hub
           python ci/fetch.py
 
+      - name: Python cache
+        if: env.SKIP_ROUND != '1'
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: peakcut-pip-${{ hashFiles('requirements.txt') }}
+
+      - name: Install what the studio needs
+        if: env.SKIP_ROUND != '1'
+        run: pip install -q -r requirements.txt
+
       - name: Run the round (40 minutes)
         if: env.SKIP_ROUND != '1'
         run: |
-          python -m pip install -q -r requirements.txt || python -m pip install -q fastapi uvicorn httpx pillow numpy soundfile
           python -m studio.server &
           echo $! > server.pid
           sleep 2400
